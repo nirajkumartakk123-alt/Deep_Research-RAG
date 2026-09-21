@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.gitignore
+data/documents/*
+!data/documents/.gitkeep
+data/evaluation/results/*
+!data/evaluation/results/.gitkeep
+frontend/node_modules/
+*.md
+.env
+tests/
+manual_test_*.py

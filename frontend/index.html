@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DeepResearch-RAG</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; }
+  h1 { font-size: 1.6rem; }
+  section { margin-bottom: 32px; padding: 20px; border: 1px solid #ddd; border-radius: 8px; }
+  input[type=text], textarea { width: 100%; padding: 10px; font-size: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }
+  button { padding: 10px 18px; font-size: 1rem; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  .doc-list { list-style: none; padding: 0; }
+  .doc-list li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  .status { font-size: 0.85rem; color: #555; margin-top: 8px; }
+  .report { white-space: pre-wrap; background: #f7f7f7; padding: 16px; border-radius: 6px; margin-top: 16px; }
+  .citation { font-size: 0.85rem; padding: 8px; background: #eef2ff; border-radius: 4px; margin-top: 6px; }
+  .error { color: #c0392b; }
+</style>
+</head>
+<body>
+
+<h1>DeepResearch-RAG</h1>
+
+<section>
+  <h2>Upload Document</h2>
+  <input type="file" id="fileInput">
+  <button onclick="uploadFile()">Upload</button>
+  <div class="status" id="uploadStatus"></div>
+</section>
+
+<section>
+  <h2>Documents</h2>
+  <button onclick="loadDocuments()">Refresh</button>
+  <ul class="doc-list" id="docList"></ul>
+</section>
+
+<section>
+  <h2>Ask a Research Question</h2>
+  <textarea id="queryInput" rows="3" placeholder="e.g. According to my documents, what is the boiling point of water?"></textarea>
+  <button onclick="runResearch()" id="researchBtn">Run Research</button>
+  <div class="status" id="researchStatus"></div>
+  <div id="reportOutput"></div>
+</section>
+
+<script>
+const API_BASE = "http://localhost:8000";
+
+async function uploadFile() {
+  const input = document.getElementById("fileInput");
+  const statusEl = document.getElementById("uploadStatus");
+  if (!input.files.length) { statusEl.textContent = "Choose a file first."; return; }
+
+  const formData = new FormData();
+  formData.append("file", input.files[0]);
+
+  statusEl.textContent = "Uploading...";
+  try {
+    const res = await fetch(`${API_BASE}/documents/process`, { method: "POST", body: formData });
+    const data = await res.json();
+    if (!res.ok) { statusEl.innerHTML = `<span class="error">Error: ${data.message}</span>`; return; }
+    statusEl.textContent = `Submitted. Job ID: ${data.job_id}. Polling for completion...`;
+    pollJob(data.job_id, statusEl);
+  } catch (e) {
+    statusEl.innerHTML = `<span class="error">Request failed: ${e}</span>`;
+  }
+}
+
+async function pollJob(jobId, statusEl) {
+  const poll = async () => {
+    const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+    const data = await res.json();
+    if (data.status === "SUCCESS") {
+      statusEl.textContent = `Done: ${data.result.document_name} (${data.result.total_chunks} chunks, already_existed=${data.result.already_existed})`;
+      loadDocuments();
+    } else if (data.status === "FAILURE") {
+      statusEl.innerHTML = `<span class="error">Failed: ${data.error}</span>`;
+    } else {
+      statusEl.textContent = `Status: ${data.status}...`;
+      setTimeout(poll, 1500);
+    }
+  };
+  poll();
+}
+
+async function loadDocuments() {
+  const listEl = document.getElementById("docList");
+  listEl.innerHTML = "Loading...";
+  try {
+    const res = await fetch(`${API_BASE}/documents`);
+    const docs = await res.json();
+    listEl.innerHTML = docs.length
+      ? docs.map(d => `<li><strong>${d.document_name}</strong> — ${d.chunk_count} chunk(s), ${d.status}</li>`).join("")
+      : "<li>No documents uploaded yet.</li>";
+  } catch (e) {
+    listEl.innerHTML = `<li class="error">Failed to load: ${e}</li>`;
+  }
+}
+
+async function runResearch() {
+  const query = document.getElementById("queryInput").value.trim();
+  const statusEl = document.getElementById("researchStatus");
+  const outputEl = document.getElementById("reportOutput");
+  const btn = document.getElementById("researchBtn");
+
+  if (!query) { statusEl.textContent = "Enter a question first."; return; }
+
+  btn.disabled = true;
+  statusEl.textContent = "Running research pipeline (this can take 10-60+ seconds)...";
+  outputEl.innerHTML = "";
+
+  try {
+    const res = await fetch(`${API_BASE}/research`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+
+    if (!res.ok) { statusEl.innerHTML = `<span class="error">Error: ${data.message}</span>`; return; }
+
+    statusEl.textContent = `Done. Query type: ${data.query_type}, rewrite count: ${data.rewrite_count}`;
+
+    let html = `<div class="report">${data.final_report}</div>`;
+    if (data.citations.length) {
+      html += "<h3>Citations</h3>";
+      html += data.citations.map(c => {
+        const source = c.source_type === "private"
+          ? `${c.document_name}${c.page ? ", page " + c.page : ""}`
+          : `<a href="${c.url}" target="_blank">${c.url}</a>`;
+        return `<div class="citation"><strong>${c.claim}</strong><br>Source: ${source}</div>`;
+      }).join("");
+    } else {
+      html += "<p><em>No citations produced.</em></p>";
+    }
+    outputEl.innerHTML = html;
+  } catch (e) {
+    btn.disabled = false;
+    statusEl.innerHTML = `<span class="error">Request failed: ${e}</span>`;
+  }
+}
+
+loadDocuments();
+</script>
+</body>
+</html>

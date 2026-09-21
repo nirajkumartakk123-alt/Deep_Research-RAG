@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Env
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Data
+data/documents/*
+!data/documents/.gitkeep
+data/evaluation/results/*
+!data/evaluation/results/.gitkeep
+
+# Docker
+postgres_data/
+
+# Node/frontend (added in Phase 13)
+node_modules/
+frontend/dist/
